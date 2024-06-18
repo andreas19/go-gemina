@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	PackageVersion = "0.1.0"
+	PackageVersion = "0.2.0"
 )
 
 type Version byte
@@ -28,31 +28,33 @@ const (
 	Version2    Version = 0x8b
 	Version3    Version = 0x8c
 	Version4    Version = 0x8d
+	Version5    Version = 0x8e
 	block_len           = aes.BlockSize // 16 bytes
 	version_len         = 1             // byte
 	mac_len             = sha256.Size   // bytes
 	salt_len            = 16            // bytes
-	iterations          = 100000
 )
 
 var (
-	UnknownVersionError = errors.New("gemina: unknown version")
-	DecryptionError     = errors.New("gemina: cannot decrypt data")
+	ErrUnknownVersion = errors.New("gemina: unknown version")
+	ErrDecryption     = errors.New("gemina: cannot decrypt data")
 )
 
 type prop struct {
 	enc_key_len int
 	mac_key_len int
+	iterations  int
 }
 
 var props map[Version]prop
 
 func init() {
 	props = make(map[Version]prop, 4)
-	props[Version1] = prop{16, 16}
-	props[Version2] = prop{16, 32}
-	props[Version3] = prop{24, 32}
-	props[Version4] = prop{32, 32}
+	props[Version1] = prop{16, 16, 100_000}
+	props[Version2] = prop{16, 32, 100_000}
+	props[Version3] = prop{24, 32, 100_000}
+	props[Version4] = prop{32, 32, 100_000}
+	props[Version5] = prop{32, 32, 600_000}
 }
 
 // CreateSecretKey creates a secret key that can be used with the
@@ -60,7 +62,7 @@ func init() {
 func CreateSecretKey(version Version) ([]byte, error) {
 	p, ok := props[version]
 	if !ok {
-		return nil, UnknownVersionError
+		return nil, ErrUnknownVersion
 	}
 	key_len := p.enc_key_len + p.mac_key_len
 	b := make([]byte, key_len)
@@ -116,7 +118,7 @@ func VerifyWithPassword(password, data []byte) bool {
 func splitKey(key []byte, version Version) ([]byte, []byte, error) {
 	p, ok := props[version]
 	if !ok {
-		return nil, nil, UnknownVersionError
+		return nil, nil, ErrUnknownVersion
 	}
 	return key[:p.enc_key_len], key[p.enc_key_len:], nil
 }
@@ -157,7 +159,7 @@ func encrypt(key, data, salt []byte, version Version) ([]byte, error) {
 
 func decrypt(key, data []byte, salt_len int) ([]byte, error) {
 	if !checkData(data, salt_len != 0) {
-		return nil, DecryptionError
+		return nil, ErrDecryption
 	}
 	enc_key, mac_key, err := splitKey(key, Version(data[0]))
 	if err != nil {
@@ -167,7 +169,7 @@ func decrypt(key, data []byte, salt_len int) ([]byte, error) {
 	new_mac := hmac.New(sha256.New, mac_key)
 	new_mac.Write(data[:len(data)-mac_len])
 	if !hmac.Equal(mac, new_mac.Sum(nil)) {
-		return nil, DecryptionError
+		return nil, ErrDecryption
 	}
 	iv := data[1+salt_len : 1+salt_len+block_len]
 	data = data[1+salt_len+block_len : len(data)-mac_len]
@@ -179,11 +181,11 @@ func decrypt(key, data []byte, salt_len int) ([]byte, error) {
 	mode.CryptBlocks(data, data)
 	pad_value := data[len(data)-1]
 	if pad_value < 1 || pad_value > 16 {
-		return nil, DecryptionError
+		return nil, ErrDecryption
 	}
 	for i := len(data) - 1; i >= len(data)-int(pad_value); i-- {
 		if data[i] != pad_value {
-			return nil, DecryptionError
+			return nil, ErrDecryption
 		}
 	}
 	return data[:len(data)-int(pad_value)], nil
@@ -206,7 +208,7 @@ func verify(key, data []byte, with_salt bool) bool {
 func deriveKey(password, salt []byte, version Version) ([]byte, []byte, error) {
 	p, ok := props[version]
 	if !ok {
-		return nil, nil, UnknownVersionError
+		return nil, nil, ErrUnknownVersion
 	}
 	if salt == nil {
 		salt = make([]byte, salt_len)
@@ -216,7 +218,7 @@ func deriveKey(password, salt []byte, version Version) ([]byte, []byte, error) {
 		}
 	}
 	key_len := p.enc_key_len + p.mac_key_len
-	key := pbkdf2.Key(password, salt, iterations, key_len, sha256.New)
+	key := pbkdf2.Key(password, salt, p.iterations, key_len, sha256.New)
 	return key, salt, nil
 }
 
