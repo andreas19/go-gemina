@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	PackageVersion = "0.2.0"
+	PackageVersion = "0.2.1"
 )
 
 type Version byte
