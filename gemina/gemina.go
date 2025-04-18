@@ -29,6 +29,7 @@ const (
 	Version3    Version = 0x8c
 	Version4    Version = 0x8d
 	Version5    Version = 0x8e
+	MaxVersion          = Version5
 	block_len           = aes.BlockSize // 16 bytes
 	version_len         = 1             // byte
 	mac_len             = sha256.Size   // bytes
